@@ -8,8 +8,8 @@ cd "$(dirname "$0")"
 
 MIN_SDK=26
 TARGET_SDK=34
-VERSION_CODE=2
-VERSION_NAME=1.1
+VERSION_CODE=3
+VERSION_NAME=1.2
 
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$LOCALAPPDATA/Android/Sdk}}"
 # 36.0.0: its d8 handles some generated inner classes that 34.0.0's d8 crashes on.
