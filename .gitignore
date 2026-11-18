@@ -1,6 +1,8 @@
 node_modules/
 data/
+android/build/
 *.log
 .env
 .DS_Store
 .freebuff/
+*.idsig
