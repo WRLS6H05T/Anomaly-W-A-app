@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -21,6 +22,8 @@ final class Monitor {
     private static final String PREFS = "anomaly_watch";
     private static final String KEY = "state";
     private static final int MAX_NOTIFIED = 3000;
+    /** Window used for per-app traffic totals; NetworkStats buckets are coarse. */
+    private static final long TRAFFIC_WINDOW_MS = 120_000;
 
     private static Monitor instance;
 
@@ -77,6 +80,10 @@ final class Monitor {
         int processes;
         int networks;
         int trustedCount;
+        List<Traffic.AppUse> apps = new ArrayList<>();
+        boolean usageGranted;
+        String trafficNote = "";
+        int appsKnown;
     }
 
     private final Context ctx;
@@ -98,6 +105,11 @@ final class Monitor {
 
     private List<Conn> conns = new ArrayList<>();
     private NetInfo net;
+
+    private final Map<String, Long> appSeen = new HashMap<>();
+    private List<Traffic.AppUse> apps = new ArrayList<>();
+    private boolean usageGranted;
+    private String trafficNote = "";
 
     private Monitor(Context ctx) {
         this.ctx = ctx;
@@ -217,6 +229,21 @@ final class Monitor {
             }
         }
 
+        /* ----------------------------------------------- per-app traffic (UID) */
+        Traffic.Result traffic = Traffic.sample(ctx, TRAFFIC_WINDOW_MS);
+        usageGranted = traffic.granted;
+        trafficNote = traffic.note;
+        List<Traffic.AppUse> sampled = traffic.apps;
+        for (Traffic.AppUse a : sampled) {
+            a.known = appSeen.containsKey(a.key);
+            if (firstPass || a.known || a.key.isEmpty()) continue;
+            candidates.add(alert("app:" + a.key, "unverified-app", "medium",
+                    "New app using the network: " + a.label,
+                    a.label + " (" + a.key + ") moved " + bytes(a.rx) + " down and " + bytes(a.tx)
+                            + " up in the last " + (TRAFFIC_WINDOW_MS / 60000)
+                            + " min, and is not part of the baseline.", ""));
+        }
+
         if (firstPass) {
             for (Conn c : built) {
                 if (c.listener) continue;
@@ -249,14 +276,28 @@ final class Monitor {
                 && !networks.containsKey(info.fingerprint)) {
             networks.put(info.fingerprint, now);
         }
+        for (Traffic.AppUse a : sampled) {
+            if (!a.key.isEmpty() && !appSeen.containsKey(a.key)) appSeen.put(a.key, now);
+        }
 
         while (feed.size() > MAX_FEED) feed.remove(feed.size() - 1);
         if (notified.size() > MAX_NOTIFIED) notified.clear();
 
         conns = built;
+        apps = sampled;
         net = info;
         updatedAt = now;
         save();
+    }
+
+    /** 12345 -> "12.1 KB"; used for alert text and the traffic list. */
+    static String bytes(long count) {
+        if (count < 1024) return count + " B";
+        double kb = count / 1024.0;
+        if (kb < 1024) return String.format(Locale.US, "%.0f KB", kb);
+        double mb = kb / 1024.0;
+        if (mb < 1024) return String.format(Locale.US, "%.1f MB", mb);
+        return String.format(Locale.US, "%.2f GB", mb / 1024.0);
     }
 
     private static boolean isRemote(String ip) {
@@ -311,6 +352,10 @@ final class Monitor {
         s.processes = processes.size();
         s.networks = networks.size();
         s.trustedCount = trusted.size();
+        s.apps = new ArrayList<>(apps);
+        s.usageGranted = usageGranted;
+        s.trafficNote = trafficNote;
+        s.appsKnown = appSeen.size();
         for (Conn c : s.conns) {
             s.total++;
             if (!c.verified && !c.listener) s.unverified++;
@@ -376,6 +421,9 @@ final class Monitor {
         if (net != null && net.fingerprint != null && !net.fingerprint.isEmpty()) {
             networks.put(net.fingerprint, now);
         }
+        for (Traffic.AppUse a : apps) {
+            if (!a.key.isEmpty()) appSeen.put(a.key, now);
+        }
         baselineAt = now;
         Iterator<Alert> it = feed.iterator();
         while (it.hasNext()) {
@@ -402,6 +450,7 @@ final class Monitor {
             readMap(o.optJSONObject("endpoints"), endpoints);
             readMap(o.optJSONObject("processes"), processes);
             readMap(o.optJSONObject("networks"), networks);
+            readMap(o.optJSONObject("apps"), appSeen);
             readMap(o.optJSONObject("trusted"), trusted);
             readMap(o.optJSONObject("muted"), muted);
             JSONArray f = o.optJSONArray("feed");
@@ -431,6 +480,7 @@ final class Monitor {
             o.put("endpoints", writeMap(endpoints));
             o.put("processes", writeMap(processes));
             o.put("networks", writeMap(networks));
+            o.put("apps", writeMap(appSeen));
             o.put("trusted", writeMap(trusted));
             o.put("muted", writeMap(muted));
             JSONArray f = new JSONArray();

@@ -112,16 +112,16 @@ public class MainActivity extends Activity {
 
         LinearLayout stats = new LinearLayout(this);
         stats.setOrientation(LinearLayout.HORIZONTAL);
-        stats.addView(statCard("Connections", TEXT, 0));
-        stats.addView(statCard("Unverified", AMBER, 1));
-        stats.addView(statCard("Unencrypted", HOT, 2));
+        stats.addView(statCard("Apps", TEXT, 0));
+        stats.addView(statCard("Sockets", TEXT, 1));
+        stats.addView(statCard("Unverified", AMBER, 2));
         stats.addView(statCard("Alerts", RED, 3));
         root.addView(stats);
 
         LinearLayout tabRow = new LinearLayout(this);
         tabRow.setOrientation(LinearLayout.HORIZONTAL);
         tabRow.setPadding(0, dp(10), 0, dp(6));
-        String[] names = {"Alerts", "Sockets", "Network"};
+        String[] names = {"Alerts", "Traffic", "Network"};
         for (int i = 0; i < names.length; i++) {
             final int index = i;
             Button b = new Button(this);
@@ -160,7 +160,9 @@ public class MainActivity extends Activity {
             @Override
             public void onItemClick(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 Row row = adapter.rows.get(position);
-                if (row != null && row.alert != null) showAlert(row.alert);
+                if (row == null) return;
+                if (row.action == 1) openUsageSettings();
+                else if (row.alert != null) showAlert(row.alert);
             }
         });
         root.addView(list);
@@ -261,9 +263,9 @@ public class MainActivity extends Activity {
 
     private void refresh() {
         Monitor.Snapshot s = monitor.snapshot();
-        statValues[0].setText(String.valueOf(s.total));
-        statValues[1].setText(String.valueOf(s.unverified));
-        statValues[2].setText(String.valueOf(s.plaintext));
+        statValues[0].setText(String.valueOf(s.apps.size()));
+        statValues[1].setText(String.valueOf(s.total));
+        statValues[2].setText(String.valueOf(s.unverified));
         statValues[3].setText(String.valueOf(s.alerts.size()));
 
         status.setText(WatchService.RUNNING ? "● watching" : "○ stopped");
@@ -271,13 +273,16 @@ public class MainActivity extends Activity {
 
         String netLabel = s.net == null ? "offline" : s.net.label();
         subtitle.setText(netLabel + " · baseline " + ago(s.baselineAt) + " · "
-                + s.endpoints + " endpoints · " + s.listeners + " listening");
+                + s.appsKnown + " apps · " + s.endpoints + " endpoints");
 
-        if (s.scanNote != null && !s.scanNote.isEmpty()) {
+        if (!s.usageGranted && s.trafficNote != null && !s.trafficNote.isEmpty()) {
+            note.setText(s.trafficNote);
+            note.setTextColor(AMBER);
+        } else if (s.scanNote != null && !s.scanNote.isEmpty()) {
             note.setText(s.scanNote);
             note.setTextColor(AMBER);
         } else {
-            note.setText("Tap an alert to trust the endpoint or dismiss it. Android may hide sockets owned by other apps.");
+            note.setText("Tap an alert to trust the endpoint or dismiss it. Traffic is reported per app: Android hides other apps' sockets without root.");
             note.setTextColor(DIM);
         }
 
@@ -309,28 +314,40 @@ public class MainActivity extends Activity {
                         "baseline " + ago(s.baselineAt), GREEN, null));
             }
         } else if (tab == 1) {
-            for (Monitor.Conn c : s.conns) {
-                String endpoint = c.listener
-                        ? c.localIp + ":" + c.localPort
-                        : c.remoteIp + ":" + c.remotePort;
-                String arrow = c.listener ? "◂" : c.inbound ? "←" : "→";
-                String enc;
-                if ("plaintext".equals(c.encryption)) enc = "NO TLS";
-                else if ("encrypted".equals(c.encryption)) enc = "TLS";
-                else enc = "unknown";
-                String dir = c.listener
-                        ? (c.exposed ? "listening · all interfaces" : "listening")
-                        : c.inbound ? "inbound" : "outbound";
-                rows.add(new Row(c.process + "  " + arrow + "  " + endpoint,
-                        c.service + " · " + enc + " · risk " + c.risk,
-                        c.proto.toUpperCase(Locale.US) + " " + c.state + " · uid " + c.uid + " · " + dir
-                                + (c.verified ? "" : " · unverified"),
-                        riskColor(c.risk), null));
+            if (!s.usageGranted) {
+                rows.add(new Row("Per-app traffic is hidden",
+                        "Android only reports other apps' traffic after you grant Usage access. Tap this row, then turn on Anomaly Watch in the list.",
+                        "tap to open Usage access", AMBER, null, 1));
             }
-            if (rows.isEmpty()) {
-                rows.add(new Row("No sockets visible",
-                        "The platform returned an empty socket table for this app.",
-                        "scan " + ago(s.updatedAt), AMBER, null));
+            for (Traffic.AppUse a : s.apps) {
+                rows.add(new Row(a.label,
+                        "↓ " + Monitor.bytes(a.rx) + "     ↑ " + Monitor.bytes(a.tx) + "     last 2 min",
+                        (a.pkg.isEmpty() ? "" : a.pkg + " · ") + "uid " + a.uid + (a.known ? "" : " · new"),
+                        a.known ? ACCENT : AMBER, null, 0));
+            }
+            if (s.apps.isEmpty() && s.usageGranted) {
+                rows.add(new Row("No app traffic right now",
+                        "Nothing moved data in the last two minutes. Open a browser or a chat app and it will show up here.",
+                        "window 2 min", MUTED, null, 0));
+            }
+            if (!s.conns.isEmpty()) {
+                rows.add(new Row("Raw sockets",
+                        s.conns.size() + " socket entries were readable from /proc/net",
+                        "usually only this app's own sockets", MUTED, null, 0));
+                for (Monitor.Conn c : s.conns) {
+                    String endpoint = c.listener
+                            ? c.localIp + ":" + c.localPort
+                            : c.remoteIp + ":" + c.remotePort;
+                    String arrow = c.listener ? "◂" : c.inbound ? "←" : "→";
+                    String enc;
+                    if ("plaintext".equals(c.encryption)) enc = "NO TLS";
+                    else if ("encrypted".equals(c.encryption)) enc = "TLS";
+                    else enc = "unknown";
+                    rows.add(new Row(c.process + "  " + arrow + "  " + endpoint,
+                            c.service + " · " + enc + " · risk " + c.risk,
+                            c.proto.toUpperCase(Locale.US) + " " + c.state + " · uid " + c.uid,
+                            riskColor(c.risk), null, 0));
+                }
             }
         } else {
             if (s.net != null) {
@@ -406,6 +423,18 @@ public class MainActivity extends Activity {
         b.show();
     }
 
+    private void openUsageSettings() {
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+            } catch (Exception ignored) {
+                // no settings activity available
+            }
+        }
+    }
+
     private void startWatch() {
         try {
             startForegroundService(new Intent(this, WatchService.class));
@@ -433,13 +462,19 @@ public class MainActivity extends Activity {
         final String meta;
         final int color;
         final Monitor.Alert alert;
+        final int action;
 
         Row(String title, String detail, String meta, int color, Monitor.Alert alert) {
+            this(title, detail, meta, color, alert, 0);
+        }
+
+        Row(String title, String detail, String meta, int color, Monitor.Alert alert, int action) {
             this.title = title;
             this.detail = detail == null ? "" : detail;
             this.meta = meta == null ? "" : meta;
             this.color = color;
             this.alert = alert;
+            this.action = action;
         }
     }
 
