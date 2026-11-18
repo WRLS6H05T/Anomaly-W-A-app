@@ -1,0 +1,13 @@
+{
+  "name": "netwatch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live network monitor that alerts on unverified activity and unencrypted traffic",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

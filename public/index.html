@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Netwatch — network activity monitor</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 5 7v9c0 7 5 11 11 13 6-2 11-6 11-13V7z' fill='%230d1622' stroke='%232ee6a8' stroke-width='2'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M16 3 5 7v9c0 7 5 11 11 13 6-2 11-6 11-13V7z" />
+            <path d="M11 16.5l3.4 3.4 6.6-7" class="check" />
+          </svg>
+          <div class="brand-text">
+            <h1>NETWATCH</h1>
+            <p>Network activity &amp; encryption monitor</p>
+          </div>
+        </div>
+
+        <div class="statusbar">
+          <span class="live" id="livePill"><i class="pulse"></i><span id="liveLabel">connecting</span></span>
+          <span class="divider"></span>
+          <span class="meta" id="hostLabel">—</span>
+          <span class="divider"></span>
+          <span class="meta" id="baselineLabel">no baseline yet</span>
+        </div>
+
+        <div class="controls">
+          <button class="btn" id="toggleBtn" type="button">Pause</button>
+          <button class="btn" id="baselineBtn" type="button" title="Treat everything currently visible as known">Re-baseline</button>
+          <button class="btn ghost" id="clearBtn" type="button">Clear alerts</button>
+        </div>
+      </header>
+
+      <section class="stats" id="stats"></section>
+
+      <main class="grid">
+        <section class="panel connections">
+          <div class="panel-head">
+            <h2>Connections <span class="count" id="connCount">0</span></h2>
+            <div class="tabs" id="tabs">
+              <button class="tab active" data-filter="all" type="button">All</button>
+              <button class="tab" data-filter="plaintext" type="button">Unencrypted</button>
+              <button class="tab" data-filter="unverified" type="button">Unverified</button>
+              <button class="tab" data-filter="listener" type="button">Listeners</button>
+            </div>
+            <input class="search" id="search" type="search" placeholder="Filter process, IP, service…" autocomplete="off" />
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Process</th>
+                  <th>Endpoint</th>
+                  <th>Service</th>
+                  <th>Encryption</th>
+                  <th>Trust</th>
+                  <th class="right">Risk</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+            <div class="empty" id="emptyConns" hidden>No connections match this view.</div>
+          </div>
+
+          <div class="panel-foot" id="connFoot">—</div>
+        </section>
+
+        <aside class="panel alerts">
+          <div class="panel-head">
+            <h2>Alerts <span class="count" id="alertCount">0</span></h2>
+            <span class="hint">newest first</span>
+          </div>
+          <div class="alert-list" id="alertList"></div>
+          <div class="empty small" id="emptyAlerts">No alerts. Nothing unverified or unencrypted is in play.</div>
+        </aside>
+      </main>
+
+      <footer class="foot">
+        <span>Scanning every <b id="pollLabel">—</b></span>
+        <span class="legend">
+          <i class="dot enc"></i>encrypted
+          <i class="dot plain"></i>unencrypted
+          <i class="dot unk"></i>unknown
+          <i class="dot unv"></i>unverified
+        </span>
+        <span class="note" id="scanNote"></span>
+      </footer>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
