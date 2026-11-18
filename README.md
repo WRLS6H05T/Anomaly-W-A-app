@@ -9,6 +9,14 @@ A network monitor that watches live traffic and alerts you when it sees **unveri
 
 Both share the same idea: learn what is normal for this device, then flag anything new, and flag anything that is not encrypted.
 
+[![Download APK](https://img.shields.io/badge/download-anomaly--watch--1.0.apk-58A6FF?style=for-the-badge)](https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.0.apk)
+
+**Direct download (right-click → Save link as, or just open it on the phone):**
+<https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.0.apk>
+
+> `anomaly-watch-1.0.apk` · 37 KB · signed · Android 8.0+ · package `com.wrls6h05t.anomalywatch`
+> The file also lives in the repo at [`dist/anomaly-watch-1.0.apk`](https://github.com/WRLS6H05T/Anomaly-W-A-app/blob/main/dist/anomaly-watch-1.0.apk) — use its **Download** button if the raw link is blocked by your browser.
+
 ---
 
 ## Android app
