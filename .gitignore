@@ -6,3 +6,6 @@ android/build/
 .DS_Store
 .freebuff/
 *.idsig
+.avd/
+ui*.xml
+*-shot.png

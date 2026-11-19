@@ -427,12 +427,22 @@ public class MainActivity extends Activity {
         int critical = 0;
         for (Monitor.Alert a : s.alerts) if ("critical".equals(a.severity)) critical++;
 
-        statValues[0].setText(String.valueOf(s.apps.size()));
-        statSubs[0].setText(newApps + " new");
-        statValues[1].setText(String.valueOf(encrypted));
-        statSubs[1].setText(s.total + " sockets");
-        statValues[2].setText(String.valueOf(s.plaintext));
-        statSubs[2].setText(unknown + " unknown");
+        // Android denies /proc/net/tcp to apps (SELinux), so the socket counters are
+        // unknowable rather than zero. Say so instead of reporting a false 0.
+        boolean socketsBlocked = s.scanNote != null && !s.scanNote.isEmpty();
+        String none = "—";
+
+        statValues[0].setText(s.usageGranted ? String.valueOf(s.apps.size()) : none);
+        statSubs[0].setText(s.usageGranted ? newApps + " new" : "needs access");
+        statValues[0].setTextColor(s.usageGranted ? NEUTRAL : MUTED_2);
+
+        statValues[1].setText(socketsBlocked ? none : String.valueOf(encrypted));
+        statSubs[1].setText(socketsBlocked ? "blocked by OS" : s.total + " sockets");
+        statValues[1].setTextColor(socketsBlocked ? MUTED_2 : ENC);
+
+        statValues[2].setText(socketsBlocked ? none : String.valueOf(s.plaintext));
+        statSubs[2].setText(socketsBlocked ? "blocked by OS" : unknown + " unknown");
+        statValues[2].setTextColor(socketsBlocked ? MUTED_2 : PLAIN);
         statValues[3].setText(String.valueOf(s.unverified));
         statSubs[3].setText(s.trustedCount + " trusted");
         statValues[4].setText(String.valueOf(s.alerts.size()));
