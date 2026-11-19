@@ -24,6 +24,8 @@ final class Monitor {
     private static final int MAX_NOTIFIED = 3000;
     /** Window used for per-app traffic totals; NetworkStats buckets are coarse. */
     private static final long TRAFFIC_WINDOW_MS = 120_000;
+    /** After capture starts, domains only build the baseline this long (no flood). */
+    private static final long DNS_QUIET_MS = 120_000;
 
     private static Monitor instance;
 
@@ -121,6 +123,7 @@ final class Monitor {
     private final Map<String, Long> domains = new HashMap<>();
     private final List<DnsEvent> dns = new ArrayList<>();
     private int plaintextDns;
+    private long dnsQuietUntil;
     private List<Traffic.AppUse> apps = new ArrayList<>();
     private boolean usageGranted;
     private String trafficNote = "";
@@ -436,8 +439,30 @@ final class Monitor {
         dns.add(0, event);
         while (dns.size() > 60) dns.remove(dns.size() - 1);
         plaintextDns++;
+
+        boolean known = domains.containsKey(domain);
         domains.put(domain, now);
         if (domains.size() > 2000) domains.clear();
+
+        // The first couple of minutes only teach the baseline: anything the
+        // device resolves on a fresh start would otherwise arrive as an alert.
+        if (known || now < dnsQuietUntil) return;
+
+        String key = "domain:" + domain;
+        if (muted.containsKey(key) || notified.containsKey(key)) return;
+        boolean newApp = looksLikePackage(event.app) && !appSeen.containsKey(event.app);
+        notified.put(key, now);
+        Alert a = alert(key, "unverified-domain", newApp ? "medium" : "low",
+                "New domain resolved in clear text",
+                event.app + " looked up " + domain + " over plaintext DNS (" + event.resolver
+                        + "); this domain is not in the baseline.", "");
+        feed.add(0, a);
+        fresh.add(a);
+    }
+
+    private static boolean looksLikePackage(String app) {
+        return app != null && app.indexOf('.') > 0
+                && !app.startsWith("uid ") && !"system resolver".equals(app);
     }
 
     /** DNS events are session-only, so starting capture only needs to reset them. */
@@ -445,6 +470,7 @@ final class Monitor {
         domains.clear();
         dns.clear();
         plaintextDns = 0;
+        dnsQuietUntil = System.currentTimeMillis() + DNS_QUIET_MS;
     }
 
     synchronized void clearFeed() {

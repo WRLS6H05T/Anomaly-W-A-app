@@ -5,17 +5,17 @@ A network monitor that watches live traffic and alerts you when it sees **unveri
 | Build | What it watches | Where |
 | --- | --- | --- |
 | **Desktop** (`server.js`, `lib/`, `public/`) | This computer's sockets: endpoints, processes, listeners | `http://127.0.0.1:4177` |
-| **Android** (`android/`) | The phone's networks, sockets and plaintext DNS, with background alerts | `dist/anomaly-watch-1.5.apk` |
+| **Android** (`android/`) | The phone's networks, sockets and plaintext DNS, with background alerts | `dist/anomaly-watch-1.6.apk` |
 
 Both share the same idea: learn what is normal for this device, then flag anything new, and flag anything that is not encrypted.
 
-[![Download APK](https://img.shields.io/badge/download-anomaly--watch--1.5.apk-58A6FF?style=for-the-badge)](https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.5.apk)
+[![Download APK](https://img.shields.io/badge/download-anomaly--watch--1.6.apk-58A6FF?style=for-the-badge)](https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.6.apk)
 
 **Direct download (right-click → Save link as, or just open it on the phone):**
-<https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.5.apk>
+<https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.6.apk>
 
-> `anomaly-watch-1.5.apk` · signed · Android 8.0+ · package `com.wrls6h05t.anomalywatch`
-> The file also lives in the repo at [`dist/anomaly-watch-1.5.apk`](https://github.com/WRLS6H05T/Anomaly-W-A-app/blob/main/dist/anomaly-watch-1.5.apk) — use its **Download** button if the raw link is blocked by your browser.
+> `anomaly-watch-1.6.apk` · signed · Android 8.0+ · package `com.wrls6h05t.anomalywatch`
+> The file also lives in the repo at [`dist/anomaly-watch-1.6.apk`](https://github.com/WRLS6H05T/Anomaly-W-A-app/blob/main/dist/anomaly-watch-1.6.apk) — use its **Download** button if the raw link is blocked by your browser.
 >
 > **First run:** open the **Traffic** tab and tap the first row → enable Usage access for Anomaly Watch. Android does not report other apps' traffic without it, which is why the list can look empty.
 
@@ -23,10 +23,10 @@ Both share the same idea: learn what is normal for this device, then flag anythi
 
 ## Android app
 
-**Install:** sideload `dist/anomaly-watch-1.5.apk` (Android 8.0 or newer):
+**Install:** sideload `dist/anomaly-watch-1.6.apk` (Android 8.0 or newer):
 
 ```bash
-adb install dist/anomaly-watch-1.5.apk
+adb install dist/anomaly-watch-1.6.apk
 ```
 
 or copy the APK to the phone and open it (allow installs from unknown sources once).
@@ -35,7 +35,7 @@ or copy the APK to the phone and open it (allow installs from unknown sources on
 
 - Measures **per-app traffic** every 4 seconds through `NetworkStatsManager` — bytes up and down per UID over the last two minutes, resolved to an app name. This is the view that works on modern Android without root.
 - Also tries the kernel socket table (`/proc/net/tcp{,6}`, `udp{,6}`) and shows those rows when the platform allows it.
-- **Captures plaintext DNS** through a local VpnService: the app advertises its own resolver inside the tunnel, forwards each query to the real resolver over a protected socket and records the domain, the asking app and the resolver. Only port-53 traffic is routed into the tunnel, so name resolution keeps working and everything else is untouched. This is the one view of real traffic Android allows without root.
+- **Captures plaintext DNS** through a local VpnService: the app advertises its own resolver inside the tunnel, forwards each query to the real resolver over a protected socket and records the domain, the asking app and the resolver. Only port-53 traffic is routed into the tunnel, so name resolution keeps working and everything else is untouched. This is the one view of real traffic Android allows without root. The first two minutes after capture starts only build the domain baseline, so a fresh start does not flood the feed with alerts.
 - Fingerprints the network it is attached to (transport, SSID/interface, gateway, DNS servers, Private DNS, VPN, metered) and remembers the ones it has seen.
 - Runs in a foreground service, so it keeps watching while the app is closed, and posts a notification for high/critical findings.
 - Carries the same look as the desktop dashboard: identical palette, five stat cards with colour rails, segmented tabs, and alert cards with a severity rail, mono metadata and inline Trust/Dismiss actions.
@@ -51,6 +51,7 @@ or copy the APK to the phone and open it (allow installs from unknown sources on
 | `unverified-app` | An app not in the baseline transferred data in the last two minutes |
 | `unverified-network` | The device joined a network it has never been on before |
 | `unencrypted-network` | Wi-Fi/Ethernet with Private DNS off and no VPN — DNS queries leave in clear text |
+| `unverified-domain` | An app resolved a domain that is not in the baseline. **Low** for a new domain from a known app, **medium** when the asking app is new too |
 | `system` | Informational: baseline established or refreshed |
 
 Open the **Alerts** tab and tap a finding to **Dismiss** it or **Trust** its endpoint. **Re-baseline** accepts the current state as known. The **Traffic** tab lists each app with its download/upload bytes for the last two minutes (new apps in amber, known ones in blue) and appends any raw sockets the platform exposes; the **Network** tab shows the current network fingerprint and baseline sizes.
@@ -58,7 +59,7 @@ Open the **Alerts** tab and tap a finding to **Dismiss** it or **Trust** its end
 **Build it yourself** (no Gradle needed — the script drives aapt2, javac, d8, zipalign and apksigner directly):
 
 ```bash
-bash android/build.sh        # writes ../dist/anomaly-watch-1.5.apk
+bash android/build.sh        # writes ../dist/anomaly-watch-1.6.apk
 ```
 
 Requires the Android SDK (build-tools 36.0.0, platform android-34) and any JDK. `android/release.keystore` signs the APK (alias and passwords: `anomalywatch`); keep it if you want later builds to install over this one.
@@ -170,7 +171,7 @@ android/src/…/Monitor.java   baseline, alert rules, JSON persistence
 android/src/…/WatchService.java  foreground service + notifications
 android/src/…/MainActivity.java  dashboard UI
 android/build.sh             Gradle-free APK build (aapt2 → javac → d8 → apksigner)
-dist/anomaly-watch-1.5.apk   signed, installable Android build
+dist/anomaly-watch-1.6.apk   signed, installable Android build
 ```
 
 ## Limitations (both builds)
