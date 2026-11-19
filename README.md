@@ -35,6 +35,7 @@ or copy the APK to the phone and open it (allow installs from unknown sources on
 
 - Measures **per-app traffic** every 4 seconds through `NetworkStatsManager` — bytes up and down per UID over the last two minutes, resolved to an app name. This is the view that works on modern Android without root.
 - Also tries the kernel socket table (`/proc/net/tcp{,6}`, `udp{,6}`) and shows those rows when the platform allows it.
+- **Captures plaintext DNS** through a local VpnService: the app advertises its own resolver inside the tunnel, forwards each query to the real resolver over a protected socket and records the domain, the asking app and the resolver. Only port-53 traffic is routed into the tunnel, so name resolution keeps working and everything else is untouched. This is the one view of real traffic Android allows without root.
 - Fingerprints the network it is attached to (transport, SSID/interface, gateway, DNS servers, Private DNS, VPN, metered) and remembers the ones it has seen.
 - Runs in a foreground service, so it keeps watching while the app is closed, and posts a notification for high/critical findings.
 - Carries the same look as the desktop dashboard: identical palette, five stat cards with colour rails, segmented tabs, and alert cards with a severity rail, mono metadata and inline Trust/Dismiss actions.
@@ -65,7 +66,9 @@ Requires the Android SDK (build-tools 36.0.0, platform android-34) and any JDK. 
 **Android limitations, honestly**
 
 - Android does not hand other apps' sockets to unprivileged apps, so per-app **byte counts** are the reliable signal. The raw socket list is usually just this app's own entries, and the app says so instead of inventing rows.
-- The **TLS** and **PLAINTEXT** stat cards therefore read **—** / `blocked by OS` on stock Android: SELinux denies `/proc/net/tcp{,6}` (`avc: denied { read } … proc_net_tcp_udp`), so per-connection encryption cannot be counted. They show real counts only where the socket table is readable. Seeing ports on a phone needs a VPN-based capture, which is not implemented here.
+- The **TLS** card reads **—** / `blocked by OS` on stock Android: SELinux denies `/proc/net/tcp{,6}` (`avc: denied { read } … proc_net_tcp_udp`), so per-connection encryption cannot be counted.
+- With DNS capture running, **PLAINTEXT** counts the plaintext lookups actually observed and the Traffic tab lists each domain with its app and resolver. Without capture it falls back to `—`.
+- TCP connections themselves stay invisible: a VPN only sees packets, and forwarding TCP without breaking connectivity needs a full userspace stack. DNS is captured because forwarding UDP is safe.
 - Per-app traffic requires **Usage access**, granted once in Settings (the Traffic tab links straight there). Until it is granted, only the network-level checks run.
 - Encryption is judged from the port knowledge base, not from packet contents — a service on an unusual port reads as *unknown*.
 - Open-Wi-Fi detection (WPA vs. open) needs location permission and a scan, so the app flags *unencrypted DNS* rather than the Wi-Fi cipher.

@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.VpnService;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -30,6 +31,8 @@ import java.util.Locale;
 public class MainActivity extends Activity {
 
     /* palette — same tokens as public/styles.css */
+    private static final int REQ_VPN = 77;
+
     private static final int BG = 0xFF05080D;
     private static final int PANEL_TOP = 0xFF0D141D;
     private static final int PANEL_BOT = 0xFF080D14;
@@ -218,8 +221,12 @@ public class MainActivity extends Activity {
         watchBtn = chromeButton("Stop", false, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (WatchService.RUNNING) stopService(new Intent(MainActivity.this, WatchService.class));
-                else startWatch();
+                if (WatchService.RUNNING) {
+                    stopService(new Intent(MainActivity.this, WatchService.class));
+                    stopService(new Intent(MainActivity.this, DnsVpnService.class));
+                } else {
+                    startWatch();
+                }
                 refresh();
             }
         });
@@ -440,9 +447,15 @@ public class MainActivity extends Activity {
         statSubs[1].setText(socketsBlocked ? "blocked by OS" : s.total + " sockets");
         statValues[1].setTextColor(socketsBlocked ? MUTED_2 : ENC);
 
-        statValues[2].setText(socketsBlocked ? none : String.valueOf(s.plaintext));
-        statSubs[2].setText(socketsBlocked ? "blocked by OS" : unknown + " unknown");
-        statValues[2].setTextColor(socketsBlocked ? MUTED_2 : PLAIN);
+        if (s.dnsRunning) {
+            statValues[2].setText(String.valueOf(s.plaintextDns));
+            statSubs[2].setText("DNS lookups");
+            statValues[2].setTextColor(PLAIN);
+        } else {
+            statValues[2].setText(socketsBlocked ? none : String.valueOf(s.plaintext));
+            statSubs[2].setText(socketsBlocked ? "blocked by OS" : unknown + " unknown");
+            statValues[2].setTextColor(socketsBlocked ? MUTED_2 : PLAIN);
+        }
         statValues[3].setText(String.valueOf(s.unverified));
         statSubs[3].setText(s.trustedCount + " trusted");
         statValues[4].setText(String.valueOf(s.alerts.size()));
@@ -489,7 +502,7 @@ public class MainActivity extends Activity {
             rebuildRows();
         }
         panelFoot.setText("showing " + adapter.getCount() + " · " + s.listeners + " listening · "
-                + s.processes + " known apps · scan " + ago(s.updatedAt));
+                + s.appsKnown + " known apps · scan " + ago(s.updatedAt));
     }
 
     private void rebuildRows() {
@@ -510,6 +523,17 @@ public class MainActivity extends Activity {
             if (s.apps.isEmpty() && s.usageGranted) {
                 rows.add(emptyCard("No app traffic right now",
                         "Nothing moved data in the last two minutes."));
+            }
+            if (s.dnsRunning) {
+                rows.add(sectionLabel("PLAINTEXT DNS · " + s.plaintextDns));
+                for (Monitor.DnsEvent e : s.dns) rows.add(dnsRow(e));
+                if (s.dns.isEmpty()) {
+                    rows.add(emptyCard("No lookups yet",
+                            "DNS capture is on. Domains will appear as apps resolve them."));
+                }
+            } else {
+                rows.add(hintCard("Capture plaintext DNS",
+                        "The socket table is closed to apps, but the system resolver can be captured: tap to allow a local DNS tunnel that records every lookup made in clear text.", 2));
             }
             if (!s.conns.isEmpty()) {
                 rows.add(sectionLabel("RAW SOCKETS · " + s.conns.size()));
@@ -726,6 +750,34 @@ public class MainActivity extends Activity {
         return card;
     }
 
+    private View dnsRow(Monitor.DnsEvent event) {
+        LinearLayout card = rowShell(PLAIN);
+
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        left.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView domain = text(event.domain, 11.5f, 0xFFDBE7F5, false);
+        domain.setTypeface(Typeface.MONOSPACE);
+        domain.setMaxLines(1);
+        domain.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        left.addView(domain);
+
+        TextView sub = text(event.app + "  ·  " + event.resolver, 9f, MUTED_2, false);
+        sub.setTypeface(Typeface.MONOSPACE);
+        sub.setPadding(0, dp(3), 0, 0);
+        sub.setMaxLines(1);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        left.addView(sub);
+        card.addView(left);
+
+        TextView time = text(clock.format(new Date(event.at)), 8.5f, MUTED_2, false);
+        time.setTypeface(Typeface.MONOSPACE);
+        card.addView(time);
+        return card;
+    }
+
     private View kvRow(String key, String value) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -763,6 +815,11 @@ public class MainActivity extends Activity {
     }
 
     private View hintCard(String title, String detail) {
+        return hintCard(title, detail, 1);
+    }
+
+    /** action 1 = usage access settings, action 2 = start the DNS capture. */
+    private View hintCard(String title, String detail, final int action) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackground(alertBg(WARN, false));
@@ -780,7 +837,8 @@ public class MainActivity extends Activity {
         card.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                openUsageSettings();
+                if (action == 2) startDnsCapture();
+                else openUsageSettings();
             }
         });
         return card;
@@ -1014,6 +1072,32 @@ public class MainActivity extends Activity {
             });
         }
         b.show();
+    }
+
+    private void startDnsCapture() {
+        try {
+            Intent prepare = VpnService.prepare(this);
+            if (prepare != null) {
+                startActivityForResult(prepare, REQ_VPN);
+            } else {
+                startService(new Intent(this, DnsVpnService.class));
+            }
+        } catch (Exception ignored) {
+            // VPN unavailable on this device
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_VPN && resultCode == RESULT_OK) {
+            try {
+                startService(new Intent(this, DnsVpnService.class));
+            } catch (Exception ignored) {
+                // start refused
+            }
+            handler.postDelayed(refreshLoop, 600);
+        }
     }
 
     private void openUsageSettings() {

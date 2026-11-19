@@ -64,6 +64,13 @@ final class Monitor {
         boolean verified;
     }
 
+    static final class DnsEvent {
+        String domain = "";
+        String app = "";
+        String resolver = "";
+        long at;
+    }
+
     static final class Snapshot {
         List<Alert> alerts = new ArrayList<>();
         List<Conn> conns = new ArrayList<>();
@@ -84,6 +91,10 @@ final class Monitor {
         boolean usageGranted;
         String trafficNote = "";
         int appsKnown;
+        List<DnsEvent> dns = new ArrayList<>();
+        int plaintextDns;
+        int domainsKnown;
+        boolean dnsRunning;
     }
 
     private final Context ctx;
@@ -107,6 +118,9 @@ final class Monitor {
     private NetInfo net;
 
     private final Map<String, Long> appSeen = new HashMap<>();
+    private final Map<String, Long> domains = new HashMap<>();
+    private final List<DnsEvent> dns = new ArrayList<>();
+    private int plaintextDns;
     private List<Traffic.AppUse> apps = new ArrayList<>();
     private boolean usageGranted;
     private String trafficNote = "";
@@ -353,6 +367,10 @@ final class Monitor {
         s.networks = networks.size();
         s.trustedCount = trusted.size();
         s.apps = new ArrayList<>(apps);
+        s.dns = new ArrayList<>(dns);
+        s.plaintextDns = plaintextDns;
+        s.domainsKnown = domains.size();
+        s.dnsRunning = DnsVpnService.RUNNING;
         s.usageGranted = usageGranted;
         s.trafficNote = trafficNote;
         s.appsKnown = appSeen.size();
@@ -404,6 +422,29 @@ final class Monitor {
             if (id.equals(it.next().id)) it.remove();
         }
         save();
+    }
+
+    /** Called by the DNS capture for every plaintext lookup it forwards. */
+    synchronized void recordDns(String domain, String app, String resolver) {
+        if (domain == null || domain.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        DnsEvent event = new DnsEvent();
+        event.domain = domain;
+        event.app = app == null || app.isEmpty() ? "unknown app" : app;
+        event.resolver = resolver == null ? "" : resolver;
+        event.at = now;
+        dns.add(0, event);
+        while (dns.size() > 60) dns.remove(dns.size() - 1);
+        plaintextDns++;
+        domains.put(domain, now);
+        if (domains.size() > 2000) domains.clear();
+    }
+
+    /** DNS events are session-only, so starting capture only needs to reset them. */
+    synchronized void captureStarted() {
+        domains.clear();
+        dns.clear();
+        plaintextDns = 0;
     }
 
     synchronized void clearFeed() {
