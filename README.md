@@ -5,7 +5,7 @@ A network monitor that watches live traffic and alerts you when it sees **unveri
 | Build | What it watches | Where |
 | --- | --- | --- |
 | **Desktop** (`server.js`, `lib/`, `public/`) | This computer's sockets: endpoints, processes, listeners | `http://127.0.0.1:4177` |
-| **Android** (`android/`) | The phone's networks and sockets, with background alerts | `dist/anomaly-watch-1.0.apk` |
+| **Android** (`android/`) | The phone's networks, sockets and plaintext DNS, with background alerts | `dist/anomaly-watch-1.5.apk` |
 
 Both share the same idea: learn what is normal for this device, then flag anything new, and flag anything that is not encrypted.
 
