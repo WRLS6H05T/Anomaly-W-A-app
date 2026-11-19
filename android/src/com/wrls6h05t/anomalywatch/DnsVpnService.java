@@ -1,5 +1,9 @@
 package com.wrls6h05t.anomalywatch;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
@@ -37,6 +41,12 @@ public class DnsVpnService extends VpnService {
 
     static volatile boolean RUNNING;
 
+    /** Sent from the dashboard: a foreground service has to stop itself. */
+    static final String ACTION_STOP = "com.wrls6h05t.anomalywatch.STOP_DNS_CAPTURE";
+
+    private static final int FG_ID = 1002;
+    private static final String CH_DNS = "aw_dns";
+
     private static final String TUN_IP = "10.111.222.1";
     private static final String TUN_DNS = "10.111.222.2";
     private static final int DNS_PORT = 53;
@@ -45,9 +55,22 @@ public class DnsVpnService extends VpnService {
     private volatile boolean running;
     private Thread pumpThread;
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private int lookups;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            Log.d("anomalywatch", "dns capture: stop requested by the dashboard");
+            stopCapture();
+            return START_NOT_STICKY;
+        }
+        // START_STICKY resurrects the service after it dies, including after the
+        // user pressed Stop; that opt-out has to win over the restart.
+        if (getSharedPreferences("aw", MODE_PRIVATE).getBoolean("dns_stopped", false)) {
+            Log.d("anomalywatch", "dns capture: stopped by the user, not restarting");
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         if (running) return START_STICKY;
         List<String> upstream = upstreamServers();
         if (upstream.isEmpty()) {
@@ -77,6 +100,7 @@ public class DnsVpnService extends VpnService {
         }
         running = true;
         RUNNING = true;
+        startCaptureNotification();
         pumpThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -88,10 +112,70 @@ public class DnsVpnService extends VpnService {
         return START_STICKY;
     }
 
-    @Override
-    public void onDestroy() {
+    private void stopCapture() {
         running = false;
         RUNNING = false;
+        if (tun != null) {
+            try {
+                tun.close();
+            } catch (Exception ignored) {
+                // already closing
+            }
+            tun = null;
+        }
+        stopForeground(true);
+        stopSelf();
+    }
+
+    /** Pins the capture in the shade, otherwise Android reaps it once the app is closed. */
+    private void startCaptureNotification() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        NotificationChannel channel = new NotificationChannel(CH_DNS, "DNS capture",
+                NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("Keeps the plaintext DNS capture alive while the app is closed");
+        nm.createNotificationChannel(channel);
+        try {
+            startForeground(FG_ID, captureNotification(0));
+        } catch (Exception e) {
+            // Some builds refuse the declared foreground type. The tunnel keeps
+            // working while the app is open, it just is not pinned.
+            Log.w("anomalywatch", "dns capture: startForeground refused", e);
+        }
+    }
+
+    private Notification captureNotification(int count) {
+        Intent open = new Intent(this, MainActivity.class);
+        open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent pending = PendingIntent.getActivity(this, 0, open, flags);
+        return new Notification.Builder(this, CH_DNS)
+                .setSmallIcon(R.drawable.ic_launcher)
+                .setContentTitle("Anomaly Watch · DNS capture")
+                .setContentText(count == 0 ? "Recording plaintext lookups"
+                        : count + " lookups recorded")
+                .setContentIntent(pending)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .build();
+    }
+
+    /** Another VPN or the system took the tunnel away: report it instead of pretending. */
+    @Override
+    public void onRevoke() {
+        Log.w("anomalywatch", "dns capture: revoked");
+        running = false;
+        RUNNING = false;
+        stopSelf();
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.d("anomalywatch", "dns capture: service destroyed");
+        running = false;
+        RUNNING = false;
+        stopForeground(true);
         if (tun != null) {
             try {
                 tun.close();
@@ -176,10 +260,17 @@ public class DnsVpnService extends VpnService {
                 String app = ownerName(packet, ihl, srcPort);
                 Log.d("anomalywatch", "dns " + domain + " from " + app);
                 Monitor.get(this).recordDns(domain, app, upstream.get(0));
+                updateNotification();
             }
         } catch (Exception ignored) {
             // malformed packet: drop it, the client will retry
         }
+    }
+
+    private synchronized void updateNotification() {
+        if (++lookups % 20 != 0) return;
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(FG_ID, captureNotification(lookups));
     }
 
     private byte[] forward(byte[] query, List<String> upstream) {

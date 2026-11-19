@@ -5,17 +5,17 @@ A network monitor that watches live traffic and alerts you when it sees **unveri
 | Build | What it watches | Where |
 | --- | --- | --- |
 | **Desktop** (`server.js`, `lib/`, `public/`) | This computer's sockets: endpoints, processes, listeners | `http://127.0.0.1:4177` |
-| **Android** (`android/`) | The phone's networks, sockets and plaintext DNS, with background alerts | `dist/anomaly-watch-1.6.apk` |
+| **Android** (`android/`) | The phone's networks, sockets and plaintext DNS, with background alerts | `dist/anomaly-watch-1.7.apk` |
 
 Both share the same idea: learn what is normal for this device, then flag anything new, and flag anything that is not encrypted.
 
-[![Download APK](https://img.shields.io/badge/download-anomaly--watch--1.6.apk-58A6FF?style=for-the-badge)](https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.6.apk)
+[![Download APK](https://img.shields.io/badge/download-anomaly--watch--1.7.apk-58A6FF?style=for-the-badge)](https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.7.apk)
 
 **Direct download (right-click → Save link as, or just open it on the phone):**
-<https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.6.apk>
+<https://github.com/WRLS6H05T/Anomaly-W-A-app/raw/main/dist/anomaly-watch-1.7.apk>
 
-> `anomaly-watch-1.6.apk` · signed · Android 8.0+ · package `com.wrls6h05t.anomalywatch`
-> The file also lives in the repo at [`dist/anomaly-watch-1.6.apk`](https://github.com/WRLS6H05T/Anomaly-W-A-app/blob/main/dist/anomaly-watch-1.6.apk) — use its **Download** button if the raw link is blocked by your browser.
+> `anomaly-watch-1.7.apk` · signed · Android 8.0+ · package `com.wrls6h05t.anomalywatch`
+> The file also lives in the repo at [`dist/anomaly-watch-1.7.apk`](https://github.com/WRLS6H05T/Anomaly-W-A-app/blob/main/dist/anomaly-watch-1.7.apk) — use its **Download** button if the raw link is blocked by your browser.
 >
 > **First run:** open the **Traffic** tab and tap the first row → enable Usage access for Anomaly Watch. Android does not report other apps' traffic without it, which is why the list can look empty.
 
@@ -23,10 +23,10 @@ Both share the same idea: learn what is normal for this device, then flag anythi
 
 ## Android app
 
-**Install:** sideload `dist/anomaly-watch-1.6.apk` (Android 8.0 or newer):
+**Install:** sideload `dist/anomaly-watch-1.7.apk` (Android 8.0 or newer):
 
 ```bash
-adb install dist/anomaly-watch-1.6.apk
+adb install dist/anomaly-watch-1.7.apk
 ```
 
 or copy the APK to the phone and open it (allow installs from unknown sources once).
@@ -35,7 +35,7 @@ or copy the APK to the phone and open it (allow installs from unknown sources on
 
 - Measures **per-app traffic** every 4 seconds through `NetworkStatsManager` — bytes up and down per UID over the last two minutes, resolved to an app name. This is the view that works on modern Android without root.
 - Also tries the kernel socket table (`/proc/net/tcp{,6}`, `udp{,6}`) and shows those rows when the platform allows it.
-- **Captures plaintext DNS** through a local VpnService: the app advertises its own resolver inside the tunnel, forwards each query to the real resolver over a protected socket and records the domain, the asking app and the resolver. Only port-53 traffic is routed into the tunnel, so name resolution keeps working and everything else is untouched. This is the one view of real traffic Android allows without root. The first two minutes after capture starts only build the domain baseline, so a fresh start does not flood the feed with alerts.
+- **Captures plaintext DNS** through a local VpnService: the app advertises its own resolver inside the tunnel, forwards each query to the real resolver over a protected socket and records the domain, the asking app and the resolver. Only port-53 traffic is routed into the tunnel, so name resolution keeps working and everything else is untouched. This is the one view of real traffic Android allows without root. The first two minutes after capture starts only build the domain baseline, so a fresh start does not flood the feed with alerts. The capture is a foreground service with its own notification, so Android keeps it running after you leave the app; it re-arms itself on the next launch once the tunnel has been approved, and **Stop** at the top of the Traffic tab shuts it down until you start it again.
 - Fingerprints the network it is attached to (transport, SSID/interface, gateway, DNS servers, Private DNS, VPN, metered) and remembers the ones it has seen.
 - Runs in a foreground service, so it keeps watching while the app is closed, and posts a notification for high/critical findings.
 - Carries the same look as the desktop dashboard: identical palette, five stat cards with colour rails, segmented tabs, and alert cards with a severity rail, mono metadata and inline Trust/Dismiss actions.
@@ -59,7 +59,7 @@ Open the **Alerts** tab and tap a finding to **Dismiss** it or **Trust** its end
 **Build it yourself** (no Gradle needed — the script drives aapt2, javac, d8, zipalign and apksigner directly):
 
 ```bash
-bash android/build.sh        # writes ../dist/anomaly-watch-1.6.apk
+bash android/build.sh        # writes ../dist/anomaly-watch-1.7.apk
 ```
 
 Requires the Android SDK (build-tools 36.0.0, platform android-34) and any JDK. `android/release.keystore` signs the APK (alias and passwords: `anomalywatch`); keep it if you want later builds to install over this one.
@@ -70,6 +70,7 @@ Requires the Android SDK (build-tools 36.0.0, platform android-34) and any JDK. 
 - The **TLS** card reads **—** / `blocked by OS` on stock Android: SELinux denies `/proc/net/tcp{,6}` (`avc: denied { read } … proc_net_tcp_udp`), so per-connection encryption cannot be counted.
 - With DNS capture running, **PLAINTEXT** counts the plaintext lookups actually observed and the Traffic tab lists each domain with its app and resolver. Without capture it falls back to `—`.
 - TCP connections themselves stay invisible: a VPN only sees packets, and forwarding TCP without breaking connectivity needs a full userspace stack. DNS is captured because forwarding UDP is safe.
+- With **Private DNS** set to a hostname, lookups are encrypted before they reach the tunnel. The Traffic tab says so and links straight to the setting instead of showing an empty list.
 - Per-app traffic requires **Usage access**, granted once in Settings (the Traffic tab links straight there). Until it is granted, only the network-level checks run.
 - Encryption is judged from the port knowledge base, not from packet contents — a service on an unusual port reads as *unknown*.
 - Open-Wi-Fi detection (WPA vs. open) needs location permission and a scan, so the app flags *unencrypted DNS* rather than the Wi-Fi cipher.
@@ -171,7 +172,7 @@ android/src/…/Monitor.java   baseline, alert rules, JSON persistence
 android/src/…/WatchService.java  foreground service + notifications
 android/src/…/MainActivity.java  dashboard UI
 android/build.sh             Gradle-free APK build (aapt2 → javac → d8 → apksigner)
-dist/anomaly-watch-1.6.apk   signed, installable Android build
+dist/anomaly-watch-1.7.apk   signed, installable Android build
 ```
 
 ## Limitations (both builds)

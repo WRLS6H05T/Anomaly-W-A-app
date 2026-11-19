@@ -96,6 +96,23 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        maybeResumeCapture();
+    }
+
+    /** Re-arms the capture on launch once the tunnel has been approved; Stop opts out. */
+    private void maybeResumeCapture() {
+        if (DnsVpnService.RUNNING) return;
+        if (getSharedPreferences("aw", MODE_PRIVATE).getBoolean("dns_stopped", false)) return;
+        try {
+            if (VpnService.prepare(this) == null) launchCapture();
+        } catch (Exception ignored) {
+            // VPN unavailable on this device
+        }
+    }
+
     /* ------------------------------------------------------------------ shell */
 
     private void buildUi() {
@@ -517,6 +534,12 @@ public class MainActivity extends Activity {
                         "Nothing unverified or unencrypted is in play."));
             }
         } else if (tab == 1) {
+            if (s.dnsRunning) {
+                rows.add(captureControl());
+            } else {
+                rows.add(hintCard("Capture plaintext DNS",
+                        "The socket table is closed to apps, but the system resolver can be captured: tap to allow a local DNS tunnel that records every lookup made in clear text.", 2));
+            }
             if (!s.usageGranted) rows.add(hintCard("Per-app traffic is hidden",
                     "Android only reports other apps' traffic after you grant Usage access. Tap this row, then enable Anomaly Watch."));
             for (Traffic.AppUse a : s.apps) rows.add(appRow(a));
@@ -528,12 +551,17 @@ public class MainActivity extends Activity {
                 rows.add(sectionLabel("PLAINTEXT DNS · " + s.plaintextDns));
                 for (Monitor.DnsEvent e : s.dns) rows.add(dnsRow(e));
                 if (s.dns.isEmpty()) {
-                    rows.add(emptyCard("No lookups yet",
-                            "DNS capture is on. Domains will appear as apps resolve them."));
+                    String privateDns = s.net == null ? null : s.net.privateDns;
+                    boolean doh = privateDns != null && !privateDns.isEmpty()
+                            && !"off".equals(privateDns);
+                    if (doh) {
+                        rows.add(hintCard("Private DNS is on",
+                                "Name lookups leave encrypted (" + privateDns + "), so the tunnel sees none of them. Switch Private DNS to Off to record domains.", 3));
+                    } else {
+                        rows.add(emptyCard("No lookups yet",
+                                "DNS capture is on. Domains will appear as apps resolve them."));
+                    }
                 }
-            } else {
-                rows.add(hintCard("Capture plaintext DNS",
-                        "The socket table is closed to apps, but the system resolver can be captured: tap to allow a local DNS tunnel that records every lookup made in clear text.", 2));
             }
             if (!s.conns.isEmpty()) {
                 rows.add(sectionLabel("RAW SOCKETS · " + s.conns.size()));
@@ -838,10 +866,30 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 if (action == 2) startDnsCapture();
+                else if (action == 3) openPrivateDns();
                 else openUsageSettings();
             }
         });
         return card;
+    }
+
+    /** Status line for a running capture, with the way out of it. */
+    private View captureControl() {
+        LinearLayout row = rowShell(ENC);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(text("DNS capture is on", 10.5f, ENC, true));
+        box.addView(text("Only port 53 enters the tunnel; every other flow keeps its path.",
+                9f, MUTED, false));
+        row.addView(box, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(miniButton("Stop", false, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                stopDnsCapture();
+                refresh();
+            }
+        }));
+        return row;
     }
 
     private View emptyCard(String title, String detail) {
@@ -1080,10 +1128,53 @@ public class MainActivity extends Activity {
             if (prepare != null) {
                 startActivityForResult(prepare, REQ_VPN);
             } else {
-                startService(new Intent(this, DnsVpnService.class));
+                getSharedPreferences("aw", MODE_PRIVATE).edit()
+                        .putBoolean("dns_stopped", false).apply();
+                launchCapture();
             }
         } catch (Exception ignored) {
             // VPN unavailable on this device
+        }
+    }
+
+    /** The capture is a foreground service, so Android keeps it after the app is closed. */
+    private void launchCapture() {
+        try {
+            startForegroundService(new Intent(this, DnsVpnService.class));
+        } catch (Exception e) {
+            try {
+                startService(new Intent(this, DnsVpnService.class));
+            } catch (Exception ignored) {
+                // start refused
+            }
+        }
+    }
+
+    private void stopDnsCapture() {
+        getSharedPreferences("aw", MODE_PRIVATE).edit()
+                .putBoolean("dns_stopped", true).apply();
+        // stopService() cannot bring down a foreground service, so ask the service
+        // itself to tear the tunnel down.
+        if (DnsVpnService.RUNNING) {
+            try {
+                startService(new Intent(this, DnsVpnService.class)
+                        .setAction(DnsVpnService.ACTION_STOP));
+            } catch (Exception ignored) {
+                // the service is gone already
+            }
+        }
+        handler.postDelayed(refreshLoop, 400);
+    }
+
+    private void openPrivateDns() {
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startActivity(new Intent("android.settings.PRIVATE_DNS_SETTINGS"));
+            } else {
+                startActivity(new Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS));
+            }
+        } catch (Exception ignored) {
+            // no settings activity available
         }
     }
 
@@ -1091,11 +1182,9 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_VPN && resultCode == RESULT_OK) {
-            try {
-                startService(new Intent(this, DnsVpnService.class));
-            } catch (Exception ignored) {
-                // start refused
-            }
+            getSharedPreferences("aw", MODE_PRIVATE).edit()
+                    .putBoolean("dns_stopped", false).apply();
+            launchCapture();
             handler.postDelayed(refreshLoop, 600);
         }
     }
